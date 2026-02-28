@@ -12,11 +12,11 @@ TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read a file and extract its text content",
+            "description": "Read a file and extract its text content. Supports .txt, .pdf, .json, .md, and other text-based formats. For PDFs, extracts text from all pages.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "filepath": {"type": "string"}
+                    "filepath": {"type": "string", "description": "Path to the file (e.g., 'report.pdf', 'data/cv.pdf')"}
                 },
                 "required": ["filepath"]
             }

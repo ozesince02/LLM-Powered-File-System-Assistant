@@ -15,7 +15,7 @@ An intelligent file system assistant that uses LLMs (Large Language Models) with
 
 ## 📋 Prerequisites
 
-- Python 3.8+
+- Python 3.9+
 - OpenAI API Key (for OpenAI provider) OR Google Gemini API Key (for Gemini provider)
 
 ## 🚀 Quick Start
