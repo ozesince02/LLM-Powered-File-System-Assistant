@@ -374,4 +374,4 @@ def ask_llm(query: str, provider: Optional[str] = None, max_steps: int = 8) -> s
 
 if __name__ == "__main__":
     query = input("Enter your query for the file assistant: ")
-    print(ask_llm(query))
+    ask_llm(query)

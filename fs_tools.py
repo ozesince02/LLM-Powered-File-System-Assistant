@@ -5,48 +5,70 @@ from typing import List, Dict, Optional
 from PyPDF2 import PdfReader
 from docx import Document
 
+DATA_DIR = "data"  # Only folder where LLM can operate
 
-def _find_file(filepath: str) -> Optional[str]:
-    """Find file in current dir, data folder, or subdirectories.
+
+def _is_safe_path(filepath: str) -> bool:
+    """Check if path is within the data/ folder (security check).
     
-    Search order:
-    1. Direct path
-    2. data/ folder
-    3. resumes/ folder
-    4. Any subdirectory
+    Prevents LLM from accessing files outside data/ folder.
     """
-    # If file exists as-is, use it
-    if os.path.isfile(filepath):
-        return filepath
+    # Normalize path
+    filepath = os.path.normpath(filepath)
     
-    # Search in common data directories
-    for search_dir in ["data", "resumes", "documents", "files"]:
-        full_path = os.path.join(search_dir, filepath)
-        if os.path.isfile(full_path):
-            return full_path
+    # If it's just a filename, it will be in data/ anyway
+    if os.path.sep not in filepath:
+        return True
     
-    # If filename only (no path), search all subdirs in data
-    basename = os.path.basename(filepath)
-    for search_dir in ["data", "resumes"]:
-        if os.path.isdir(search_dir):
-            for root, _, files in os.walk(search_dir):
-                for file in files:
-                    if file == basename:
-                        return os.path.join(root, file)
+    # Check if path tries to escape data folder (../)
+    if ".." in filepath:
+        return False
     
-    return None
+    # Check if path goes to root or other dirs
+    if filepath.startswith(os.path.sep) or os.path.isabs(filepath):
+        return False
+    
+    return True
+
+
+def _get_data_path(filepath: str) -> Optional[str]:
+    """Get full path in data/ folder. Returns None if unsafe.
+    
+    This is the ONLY function that constructs file paths.
+    All tools must use this to enforce data-folder-only access.
+    """
+    if not _is_safe_path(filepath):
+        return None
+    
+    # Always prepend data/ folder
+    full_path = os.path.join(DATA_DIR, filepath)
+    full_path = os.path.normpath(full_path)  # Normalize to prevent escape attempts
+    
+    # Final check: ensure normalized path is still in data/
+    try:
+        # Get absolute paths for comparison
+        abs_data = os.path.abspath(DATA_DIR)
+        abs_full = os.path.abspath(full_path)
+        
+        # Ensure full_path is under data/
+        if not abs_full.startswith(abs_data):
+            return None
+    except:
+        return None
+    
+    return full_path
 
 
 def read_file(filepath: str) -> Dict:
     """
-    Read PDF, TXT, DOCX files and return structured response.
-    Automatically searches data/ folder if file not found directly.
+    Read PDF, TXT, DOCX files from data/ folder only.
+    Returns error if file is outside data/ folder.
     """
     try:
-        # Find file in data folder or subdirectories
-        actual_path = _find_file(filepath)
-        if not actual_path:
-            return {"success": False, "error": f"File '{filepath}' not found. Searched: current dir, data/, resumes/"}
+        # Get safe path in data/ folder only
+        actual_path = _get_data_path(filepath)
+        if not actual_path or not os.path.isfile(actual_path):
+            return {"success": False, "error": f"Access denied or file not found: '{filepath}'. Only files in data/ folder are allowed."}
 
         ext = os.path.splitext(actual_path)[1].lower()
         content = ""
@@ -83,20 +105,19 @@ def read_file(filepath: str) -> Dict:
 
 def list_files(directory: str, extension: Optional[str] = None) -> List[Dict]:
     """
-    List files in directory with optional extension filter.
-    Automatically searches in data/ folder if directory not found.
+    List files in data/ folder with optional extension filter.
+    Only allows operations within data/ folder.
     """
-    # If directory not found directly, try in data/
-    if not os.path.isdir(directory) and os.path.isdir(os.path.join("data", directory)):
-        directory = os.path.join("data", directory)
+    # Get safe path in data/ folder
+    safe_dir = _get_data_path(directory) if directory else os.path.join(DATA_DIR)
     
-    if not os.path.isdir(directory):
+    if not safe_dir or not os.path.isdir(safe_dir):
         return []
 
     results = []
 
-    for file in os.listdir(directory):
-        path = os.path.join(directory, file)
+    for file in os.listdir(safe_dir):
+        path = os.path.join(safe_dir, file)
 
         if not os.path.isfile(path):
             continue
@@ -118,15 +139,24 @@ def list_files(directory: str, extension: Optional[str] = None) -> List[Dict]:
 
 def write_file(filepath: str, content: str) -> Dict:
     """
-    Write content to file. Creates directories if needed.
+    Write content to file in data/ folder only.
+    Creates subdirectories if needed, but only within data/.
     """
     try:
-        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        # Get safe path in data/ folder
+        safe_path = _get_data_path(filepath)
+        if not safe_path:
+            return {"success": False, "error": "Access denied. Only files in data/ folder are allowed."}
+        
+        # Create parent directory if needed (but only in data/)
+        parent_dir = os.path.dirname(safe_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
 
-        with open(filepath, "w", encoding="utf-8") as f:
+        with open(safe_path, "w", encoding="utf-8") as f:
             f.write(content)
 
-        return {"success": True, "path": filepath}
+        return {"success": True, "path": safe_path}
 
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -134,8 +164,8 @@ def write_file(filepath: str, content: str) -> Dict:
 
 def search_in_file(filepath: str, keyword: str) -> Dict:
     """
-    Search keyword in file and return matches with context.
-    Automatically searches data/ folder if file not found.
+    Search keyword in file within data/ folder only.
+    Returns error if file is outside data/ folder.
     """
     result = read_file(filepath)
 
